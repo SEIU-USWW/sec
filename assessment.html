@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>Opening Salesforce...</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+            background: #f4f6f9;
+        }
+        .card {
+            text-align: center;
+            padding: 32px;
+            background: #fff;
+            border-radius: 12px;
+            box-shadow: 0 4px 16px rgba(0,0,0,0.1);
+            max-width: 360px;
+            width: 90%;
+        }
+        .logo { font-size: 48px; margin-bottom: 16px; }
+        h2 { color: #0070f3; margin: 0 0 8px; }
+        p  { color: #666; font-size: 14px; margin: 0 0 24px; }
+        .btn {
+            display: inline-block;
+            padding: 12px 28px;
+            background: #0070f3;
+            color: #fff;
+            border-radius: 8px;
+            text-decoration: none;
+            font-size: 15px;
+            font-weight: 600;
+        }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <div class="logo">☁️</div>
+        <h2>Opening Salesforce</h2>
+        <p id="status">Detecting your device...</p>
+        <a id="fallback-btn" class="btn" style="display:none" href="#">
+            Open in Salesforce
+        </a>
+    </div>
+
+    <script>
+        var params  = new URLSearchParams(window.location.search);
+        var id      = params.get('id');
+        var sfBase  = 'https://canvasser-988.lightning.force.com';
+
+        var lightningUrl =
+            sfBase +
+            '/lightning/action/quick/Contact.Assessment' +
+            '?objectApiName&context=RECORD_DETAIL' +
+            '&recordId=' + id +
+            '&backgroundContext=%2Flightning%2Fr%2FContact%2F' + id + '%2Fview';
+
+        // Android Intent URL — tells Chrome to open Salesforce app directly
+        var intentUrl =
+            'intent://canvasser-988.lightning.force.com' +
+            '/lightning/action/quick/Contact.Assessment' +
+            '?objectApiName&context=RECORD_DETAIL' +
+            '&recordId=' + id +
+            '&backgroundContext=%2Flightning%2Fr%2FContact%2F' + id + '%2Fview' +
+            '#Intent;' +
+            'scheme=https;' +
+            'package=com.salesforce.chatter;' +
+            'S.browser_fallback_url=' + encodeURIComponent(lightningUrl) + ';' +
+            'end';
+
+        // Salesforce mobile app custom scheme (works on both platforms)
+        var sf1Url =
+            'salesforce1://sObject/' + id + '/view';
+
+        function isAndroid() {
+            return /android/i.test(navigator.userAgent);
+        }
+
+        function isIOS() {
+            return /iphone|ipad|ipod/i.test(navigator.userAgent);
+        }
+
+        var statusEl     = document.getElementById('status');
+        var fallbackBtn  = document.getElementById('fallback-btn');
+
+        if (!id) {
+            statusEl.textContent = 'No record ID provided.';
+        } else if (isAndroid()) {
+            statusEl.textContent = 'Opening in Salesforce app...';
+
+            // Android: use Intent URL — Chrome handles this natively
+            // If Salesforce app is installed it opens directly
+            // If not installed Chrome falls back to the Lightning URL
+            window.location.href = intentUrl;
+
+            // Show manual button after 2 seconds as fallback
+            setTimeout(function() {
+                statusEl.textContent = 'If Salesforce did not open, tap the button below.';
+                fallbackBtn.href     = lightningUrl;
+                fallbackBtn.style.display = 'inline-block';
+            }, 2000);
+
+        } else if (isIOS()) {
+            statusEl.textContent = 'Opening in Salesforce app...';
+
+            // iOS: try salesforce1:// scheme first
+            window.location.href = sf1Url;
+
+            // Fall back to Lightning URL if app not installed
+            setTimeout(function() {
+                window.location.href = lightningUrl;
+            }, 1500);
+
+        } else {
+            // Desktop or unknown — go straight to Lightning URL
+            statusEl.textContent = 'Redirecting to Salesforce...';
+            window.location.href = lightningUrl;
+        }
+    </script>
+</body>
+</html>
