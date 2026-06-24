@@ -3,8 +3,9 @@
 <head>
     <meta charset="UTF-8"/>
     <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-    <title>Opening Salesforce....</title>
+    <title>Opening Salesforce...</title>
     <style>
+        * { box-sizing: border-box; }
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
             display: flex;
@@ -13,46 +14,168 @@
             min-height: 100vh;
             margin: 0;
             background: #f4f6f9;
+            padding: 16px;
         }
         .card {
             text-align: center;
-            padding: 32px;
+            padding: 32px 24px;
             background: #fff;
             border-radius: 12px;
             box-shadow: 0 4px 16px rgba(0,0,0,0.1);
-            max-width: 360px;
-            width: 90%;
+            max-width: 400px;
+            width: 100%;
         }
-        .logo { font-size: 48px; margin-bottom: 16px; }
-        h2 { color: #0070f3; margin: 0 0 8px; }
-        p  { color: #666; font-size: 14px; margin: 0 0 24px; }
+        .logo   { font-size: 48px; margin-bottom: 12px; }
+        h2      { color: #0070f3; margin: 0 0 8px; font-size: 20px; }
+        .status { color: #666; font-size: 14px; margin: 0 0 20px; }
         .btn {
             display: inline-block;
-            padding: 12px 28px;
+            padding: 12px 24px;
             background: #0070f3;
             color: #fff;
             border-radius: 8px;
             text-decoration: none;
             font-size: 15px;
             font-weight: 600;
+            margin: 6px;
         }
+        .btn-secondary  { background: #444; }
+        .hidden         { display: none !important; }
+
+        /* Instructions panel */
+        .instructions {
+            margin-top: 24px;
+            text-align: left;
+            background: #f0f6ff;
+            border: 1px solid #cce0ff;
+            border-radius: 8px;
+            padding: 16px;
+        }
+        .instructions h3 {
+            margin: 0 0 10px;
+            font-size: 13px;
+            color: #0070f3;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .instructions ol {
+            margin: 0;
+            padding-left: 18px;
+        }
+        .instructions li {
+            font-size: 13px;
+            color: #444;
+            margin-bottom: 6px;
+            line-height: 1.5;
+        }
+        .instructions li:last-child { margin-bottom: 0; }
+        .instructions .highlight {
+            font-weight: 600;
+            color: #0070f3;
+        }
+        .divider {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin: 20px 0 16px;
+        }
+        .divider hr {
+            flex: 1;
+            border: none;
+            border-top: 1px solid #eee;
+        }
+        .divider span {
+            font-size: 12px;
+            color: #999;
+            white-space: nowrap;
+        }
+        .ios-instructions  { display: none; }
+        .android-instructions { display: none; }
     </style>
 </head>
 <body>
     <div class="card">
         <div class="logo">☁️</div>
         <h2>Opening Salesforce</h2>
-        <p id="status">Detecting your device...</p>
-        <a id="fallback-btn" class="btn" style="display:none" href="#">
-            Open in Salesforce
-        </a>
+        <p class="status" id="status">Detecting your device...</p>
+
+        <!-- Action buttons -->
+        <div id="btn-group" class="hidden">
+            <a id="app-btn"     class="btn"           href="#">Open in App</a>
+            <a id="browser-btn" class="btn btn-secondary" href="#">Open in Browser</a>
+        </div>
+
+        <!-- Android instructions -->
+        <div id="android-instructions" class="instructions hidden">
+            <h3>📱 Best Way to Open on Android</h3>
+            <ol>
+                <li>Open the <span class="highlight">Salesforce</span> app on your phone</li>
+                <li>Tap the <span class="highlight">Search icon</span> (🔍) at the top</li>
+                <li>Tap the <span class="highlight">QR / Barcode scanner icon</span> in the search bar</li>
+                <li>Point your camera at the <span class="highlight">QR code</span> on the report</li>
+                <li>The record will open <span class="highlight">directly in the app</span></li>
+            </ol>
+
+            <div class="divider">
+                <hr/><span>or use the buttons above</span><hr/>
+            </div>
+
+            <h3>⚠️ If "Open in App" does not work</h3>
+            <ol>
+                <li>Go to Android <span class="highlight">Settings → Apps → Salesforce</span></li>
+                <li>Tap <span class="highlight">Open by default</span></li>
+                <li>Turn on <span class="highlight">Open supported links</span></li>
+                <li>Return here and tap <span class="highlight">Open in App</span> again</li>
+            </ol>
+        </div>
+
+        <!-- iOS instructions -->
+        <div id="ios-instructions" class="instructions hidden">
+            <h3>📱 If Salesforce did not open automatically</h3>
+            <ol>
+                <li>Tap <span class="highlight">Open in App</span> above</li>
+                <li>If prompted, tap <span class="highlight">Open</span> to confirm</li>
+            </ol>
+
+            <div class="divider">
+                <hr/><span>alternative method</span><hr/>
+            </div>
+
+            <h3>📷 Using the Salesforce App Scanner</h3>
+            <ol>
+                <li>Open the <span class="highlight">Salesforce</span> app</li>
+                <li>Tap the <span class="highlight">Search icon</span> (🔍)</li>
+                <li>Tap the <span class="highlight">QR / Barcode scanner icon</span></li>
+                <li>Scan the <span class="highlight">QR code</span> on the report</li>
+            </ol>
+        </div>
+
+        <!-- Desktop instructions -->
+        <div id="desktop-instructions" class="instructions hidden">
+            <h3>🖥️ Redirecting to Salesforce</h3>
+            <ol>
+                <li>You will be redirected to Salesforce automatically</li>
+                <li>Log in if prompted</li>
+                <li>The Assessment page will open for this record</li>
+            </ol>
+        </div>
+
     </div>
 
     <script>
-        var params  = new URLSearchParams(window.location.search);
-        var id      = params.get('id');
-        var sfBase  = 'https://canvasser-988.lightning.force.com';
+        var params     = new URLSearchParams(window.location.search);
+        var id         = params.get('id');
+        var sfBase     = 'https://canvasser-988.lightning.force.com';
+        var statusEl   = document.getElementById('status');
+        var btnGroup   = document.getElementById('btn-group');
+        var appBtn     = document.getElementById('app-btn');
+        var browserBtn = document.getElementById('browser-btn');
 
+        var androidInstructions = document.getElementById('android-instructions');
+        var iosInstructions     = document.getElementById('ios-instructions');
+        var desktopInstructions = document.getElementById('desktop-instructions');
+
+        // ── URLs ──────────────────────────────────────────────────
         var lightningUrl =
             sfBase +
             '/lightning/action/quick/Contact.Assessment' +
@@ -60,65 +183,85 @@
             '&recordId=' + id +
             '&backgroundContext=%2Flightning%2Fr%2FContact%2F' + id + '%2Fview';
 
-        // Android Intent URL — tells Chrome to open Salesforce app directly
-        var intentUrl =
-            'intent://canvasser-988.lightning.force.com' +
-            '/lightning/action/quick/Contact.Assessment' +
+        var sf1Url =
+            'salesforce1://action/quick/Contact.Assessment' +
             '?objectApiName&context=RECORD_DETAIL' +
             '&recordId=' + id +
-            '&backgroundContext=%2Flightning%2Fr%2FContact%2F' + id + '%2Fview' +
+            '&backgroundContext=%2Flightning%2Fr%2FContact%2F' + id + '%2Fview';
+
+        var intentUrl =
+            'intent://action/quick/Contact.Assessment' +
+            '?objectApiName%26context=RECORD_DETAIL' +
+            '%26recordId=' + id +
+            '%26backgroundContext=%2Flightning%2Fr%2FContact%2F' + id + '%2Fview' +
             '#Intent;' +
-            'scheme=https;' +
+            'scheme=salesforce1;' +
             'package=com.salesforce.chatter;' +
             'S.browser_fallback_url=' + encodeURIComponent(lightningUrl) + ';' +
             'end';
 
-        // Salesforce mobile app custom scheme (works on both platforms)
-        var sf1Url =
-            'salesforce1://sObject/' + id + '/view';
+        // ── Device detection ──────────────────────────────────────
+        function isAndroid() { return /android/i.test(navigator.userAgent); }
+        function isIOS()     { return /iphone|ipad|ipod/i.test(navigator.userAgent); }
 
-        function isAndroid() {
-            return /android/i.test(navigator.userAgent);
+        // ── Show buttons ──────────────────────────────────────────
+        function showButtons(appUrl, webUrl) {
+            appBtn.href     = appUrl;
+            browserBtn.href = webUrl;
+            btnGroup.classList.remove('hidden');
         }
 
-        function isIOS() {
-            return /iphone|ipad|ipod/i.test(navigator.userAgent);
+        // ── iframe trick — try app without navigating away ────────
+        function tryAppViaIframe(url, fallbackFn) {
+            var iframe = document.createElement('iframe');
+            iframe.style.display = 'none';
+            iframe.src = url;
+            document.body.appendChild(iframe);
+            setTimeout(function() {
+                document.body.removeChild(iframe);
+                fallbackFn();
+            }, 2000);
         }
 
-        var statusEl     = document.getElementById('status');
-        var fallbackBtn  = document.getElementById('fallback-btn');
-
+        // ── Main logic ────────────────────────────────────────────
         if (!id) {
             statusEl.textContent = 'No record ID provided.';
+
         } else if (isAndroid()) {
-            statusEl.textContent = 'Opening in Salesforce app...';
+            statusEl.textContent = 'Opening Salesforce app...';
 
-            // Android: use Intent URL — Chrome handles this natively
-            // If Salesforce app is installed it opens directly
-            // If not installed Chrome falls back to the Lightning URL
-            window.location.href = intentUrl;
+            // Step 1: Try salesforce1:// via iframe
+            tryAppViaIframe(sf1Url, function() {
 
-            // Show manual button after 2 seconds as fallback
-            setTimeout(function() {
-                statusEl.textContent = 'If Salesforce did not open, tap the button below.';
-                fallbackBtn.href     = lightningUrl;
-                fallbackBtn.style.display = 'inline-block';
-            }, 2000);
+                // Step 2: Try Android Intent URL
+                window.location.href = intentUrl;
+
+                // Step 3: Show buttons and instructions
+                setTimeout(function() {
+                    statusEl.textContent =
+                        'Could not open automatically. ' +
+                        'Use the buttons or follow the instructions below.';
+                    showButtons(sf1Url, lightningUrl);
+                    androidInstructions.classList.remove('hidden');
+                }, 2500);
+            });
 
         } else if (isIOS()) {
-            statusEl.textContent = 'Opening in Salesforce app...';
-
-            // iOS: try salesforce1:// scheme first
+            statusEl.textContent = 'Opening Salesforce app...';
             window.location.href = sf1Url;
 
-            // Fall back to Lightning URL if app not installed
+            // Show buttons and instructions after short delay
             setTimeout(function() {
-                window.location.href = lightningUrl;
+                statusEl.textContent =
+                    'If Salesforce did not open, use the options below.';
+                showButtons(sf1Url, lightningUrl);
+                iosInstructions.classList.remove('hidden');
             }, 1500);
 
         } else {
-            // Desktop or unknown — go straight to Lightning URL
+            // Desktop
             statusEl.textContent = 'Redirecting to Salesforce...';
+            desktopInstructions.classList.remove('hidden');
             window.location.href = lightningUrl;
         }
     </script>
