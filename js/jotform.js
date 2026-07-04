@@ -18081,6 +18081,66 @@ var JotForm = {
         select.dispatchEvent(changeEvent);
     },
 
+    getDropdownMasterOptions: function (select) {
+        if (!select.jfMasterOptions) {
+            select.jfMasterOptions = $A(select.options);
+        }
+        return select.jfMasterOptions;
+    },
+
+    // True when the native <select> is visually replaced by a custom dropdown
+    // UI (dropdown-v2 or card form). Those UIs keep the native <select> hidden
+    // and mirror per-option hidden/disabled flags onto their own rows, so their
+    // option nodes must stay in place for that mirroring to work.
+    hasCustomDropdownUI: function (select) {
+        // Card form renders every dropdown with its own custom UI and keeps the
+        // native <select> hidden.
+        if (window.FORM_MODE === 'cardform') {
+            return true;
+        }
+        if (select.getAttribute('data-ui-version') === 'v2' || select.getAttribute('data-dropdown-v2-built')) {
+            return true;
+        }
+        if (select.closest && select.closest('.jfDropdownV2')) {
+            return true;
+        }
+        // Card form fallback: the native <select> sits next to its custom .jfInput-dropdown UI.
+        if (select.parentNode && select.parentNode.querySelector && select.parentNode.querySelector('.jfInput-dropdown')) {
+            return true;
+        }
+        return false;
+    },
+
+    // Cross-browser hide for the v1 native dropdown. Safari/iOS ignore the
+    // `hidden` attribute on <option>s inside a rendered <select> and still show
+    // them (greyed-out when disabled), so condition-hidden options leak into the
+    // list. For the plain native dropdown — the only case where the real
+    // <select> is what the user sees — physically detach options flagged hidden
+    // and reinsert visible ones at their original position, using the cached
+    // master list as the source of truth for restoration.
+    applyNativeDropdownOptionVisibility: function (select) {
+        if (!select || select.tagName !== 'SELECT') return;
+        if (JotForm.hasCustomDropdownUI(select)) return;
+        const masterOptions = JotForm.getDropdownMasterOptions(select);
+        // eslint-disable-next-line no-var
+        var reference = null;
+        // Walk the master list from last to first so each visible option can be
+        // inserted before the nearest following option already in the DOM
+        // (reference), reconstructing the original order regardless of the
+        // current detached state.
+        // eslint-disable-next-line no-var
+        for (var i = masterOptions.length - 1; i >= 0; i -= 1) {
+            // eslint-disable-next-line no-var
+            var opt = masterOptions[i];
+            if (opt.hidden) {
+                if (opt.parentNode === select) { select.removeChild(opt); }
+            } else {
+                if (opt.parentNode !== select) { select.insertBefore(opt, reference); }
+                reference = opt;
+            }
+        }
+    },
+
     // Single source of truth for per-option visibility on a control_dropdown.
     // Arbitrates EVERY currently-true option-mode condition targeting the field
     // at once, so overlapping conditions compose correctly regardless of the
@@ -18124,12 +18184,17 @@ var JotForm = {
             });
         });
 
+        // Iterate the cached master list (not the live select.options) so options
+        // detached from the native v1 dropdown are still evaluated and can be
+        // restored when they become visible again.
+        // eslint-disable-next-line no-var
+        var masterOptions = JotForm.getDropdownMasterOptions(select);
         // eslint-disable-next-line no-var
         var changed = false;
         // eslint-disable-next-line no-var
-        for (var i = 0; i < select.options.length; i += 1) {
+        for (var i = 0; i < masterOptions.length; i += 1) {
             // eslint-disable-next-line no-var
-            var opt = select.options[i];
+            var opt = masterOptions[i];
             if (opt.value === '') continue;
             // eslint-disable-next-line no-var
             var val = String(opt.value);
@@ -18152,7 +18217,240 @@ var JotForm = {
         }
 
         if (!changed) return;
+        JotForm.applyNativeDropdownOptionVisibility(select);
         JotForm.syncDropdownOptionUIs(select);
+    },
+
+    // Snapshot of each field's original options, keyed by question id, so an
+    // `updateOptions` condition can be reverted exactly once no condition holds
+    // the field. Captured lazily the first time a field is touched.
+    updateOptionsState: {},
+
+    conditionPropHandlers: {
+        options: function (field, value, isActive, action) {
+            JotForm.applyConditionOptionsOverride(field, value, isActive, action);
+        }
+    },
+
+    // Captures the field's original option DOM once, so an override can be
+    // reverted to the server-rendered state later.
+    snapshotFieldOptions: function (field, dataType) {
+        if (JotForm.updateOptionsState[field]) {
+            return;
+        }
+        const idField = $('id_' + field);
+        if (!idField) {
+            return;
+        }
+        const state = { dataType: dataType };
+
+        if (dataType === 'control_dropdown') {
+            const select = $('input_' + field);
+            if (!select) {
+                return;
+            }
+            // Default option labels, used to revert a later override. Derived
+            // from the cached master <option> node list so the snapshot and the
+            // detach/reinsert logic share one source of truth (and the node list
+            // is captured here, before any option can be detached).
+            state.defaultValues = JotForm.getDropdownMasterOptions(select)
+                .filter(function (opt) { return opt.value !== ''; })
+                .map(function (opt) { return opt.textContent.trim(); });
+        } else {
+            const itemClass = dataType === 'control_checkbox' ? 'form-checkbox-item' : 'form-radio-item';
+            const inputClass = dataType === 'control_checkbox' ? 'form-checkbox' : 'form-radio';
+            const firstItem = idField.querySelector('.' + itemClass);
+            if (!firstItem) {
+                return;
+            }
+            state.inputClass = inputClass;
+            state.parent = firstItem.parentNode;
+            // Template = first non-"Other" item, cloned so a fresh option row
+            // can be produced without copying the Other text input. The default
+            // option labels are captured alongside it to revert later.
+            const originalNodes = Array.prototype.slice.call(state.parent.children);
+            let template = null;
+            state.defaultValues = [];
+            for (let i = 0; i < originalNodes.length; i += 1) {
+                const inp = originalNodes[i].querySelector('input.' + inputClass);
+                if (!inp || inp.className.indexOf('-other') >= 0) {
+                    continue;
+                }
+                if (!template) {
+                    template = originalNodes[i];
+                }
+                // Card form keeps the option text in a dedicated *-labelText span
+                // inside the wrapping <label>; the classic layout uses a standalone
+                // <label>. Prefer the span so default values match either DOM shape.
+                const labelTextEl = originalNodes[i].querySelector('.jfRadio-labelText, .jfCheckbox-labelText');
+                const lbl = originalNodes[i].querySelector('label');
+                const optionText = labelTextEl ? labelTextEl.textContent.trim() : (lbl ? lbl.textContent.trim() : inp.value);
+                state.defaultValues.push(optionText);
+            }
+            state.template = (template || originalNodes[0]).cloneNode(true);
+        }
+
+        JotForm.updateOptionsState[field] = state;
+    },
+
+    applyFieldOptions: function (field, dataType, values) {
+        const state = JotForm.updateOptionsState[field];
+        if (!state) {
+            return;
+        }
+
+        if (dataType === 'control_dropdown') {
+            const select = $('input_' + field);
+            if (!select) {
+                return;
+            }
+            // An updateOptions override always resolves to a subset of the field's
+            // options, so toggle native <option> hidden/disabled to match the
+            // resolved set rather than rebuilding the <select>. syncDropdownOptionUIs
+            // then mirrors those flags onto the custom dropdown UIs through the
+            // existing syncDropdownV2OptionVisibility (classic) and
+            // syncCardDropdownOptionVisibility (card form) hooks, which already
+            // reconcile their lists and survive card/condition init ordering.
+            const visible = {};
+            values.each(function (optionValue) {
+                visible[String(optionValue).trim()] = true;
+            });
+            // Iterate the cached master list (not the live select.options) so
+            // options detached from the native v1 dropdown are still evaluated and
+            // can be restored when an override resolves them visible again.
+            const masterOptions = JotForm.getDropdownMasterOptions(select);
+            let changed = false;
+            for (let i = 0; i < masterOptions.length; i += 1) {
+                const opt = masterOptions[i];
+                if (opt.value === '') continue; // preserve the leading placeholder
+                const shouldHide = !(visible[String(opt.value).trim()] || visible[String(opt.textContent).trim()]);
+                if (opt.hidden !== shouldHide || opt.disabled !== shouldHide) {
+                    opt.hidden = shouldHide;
+                    opt.disabled = shouldHide;
+                    changed = true;
+                }
+                if (shouldHide && opt.selected) {
+                    opt.selected = false;
+                    changed = true;
+                }
+            }
+            if (changed) {
+                JotForm.applyNativeDropdownOptionVisibility(select);
+                JotForm.syncDropdownOptionUIs(select);
+            }
+            return;
+        }
+
+        if (!state.parent || !state.template) {
+            return;
+        }
+        while (state.parent.firstChild) {
+            state.parent.removeChild(state.parent.firstChild);
+        }
+        values.each(function (optionValue, index) {
+            const node = state.template.cloneNode(true);
+            const input = node.querySelector('input.' + state.inputClass);
+            const label = node.querySelector('label');
+            const newId = 'input_' + field + '_' + index;
+            if (input) {
+                input.id = newId;
+                input.value = optionValue;
+                input.checked = false;
+                input.removeAttribute('checked');
+                input.className = input.className.replace(/\s*form-validation-error/g, '');
+            }
+            // Card form wraps the <input> inside the <label> and stores the option
+            // text in a *-labelText span, so writing to the label's textContent
+            // would delete the input (leaving an unselectable text-only option).
+            // Update the span when present and fall back to the standalone label
+            // used by the classic layout otherwise.
+            const labelTextEl = node.querySelector('.jfRadio-labelText, .jfCheckbox-labelText');
+            if (labelTextEl) {
+                labelTextEl.textContent = optionValue;
+                if (label) {
+                    label.setAttribute('data-id', 'label_input_' + field + '_' + index);
+                }
+            } else if (label) {
+                label.id = 'label_input_' + field + '_' + index;
+                label.setAttribute('for', newId);
+                label.textContent = optionValue;
+            }
+            state.parent.appendChild(node);
+        });
+        // Card form binds change handlers (auto-advance, filled state) to the
+        // option inputs at init; the rebuilt inputs need them re-attached.
+        if (window.FORM_MODE === 'cardform' && typeof JotForm.rebindCardOptionInputs === 'function') {
+            JotForm.rebindCardOptionInputs(field);
+        }
+    },
+
+    // Resolves the visible option set for an updateOptions action at render
+    // time. `Show` displays only the selected options; `Hide` displays the
+    // field's current default options minus the selected ones. Deferring this
+    // to render time means options added to the field after the condition was
+    // created still appear (Hide only removes the explicitly selected ones).
+    resolveUpdateOptionsValues: function (subType, targetPropValue, defaultValues) {
+        const selected = (targetPropValue || '').split('|')
+            .map(function (item) { return item.trim(); })
+            .filter(function (item) { return item.length > 0; });
+        if (subType === 'Hide') {
+            return (defaultValues || []).filter(function (opt) {
+                return selected.indexOf(opt) === -1;
+            });
+        }
+        return selected;
+    },
+
+    // Applies (or reverts) an `options` prop override for an updateOptions
+    // condition. Composes multiple conditions on the same field: when this one
+    // goes false, another still-true condition's value wins; only when none are
+    // true is the field restored to its original options.
+    applyConditionOptionsOverride: function (field, value, isActive, action) {
+        field = String(field);
+        const idField = $('id_' + field);
+        if (!idField) {
+            return;
+        }
+        const dataType = idField.readAttribute('data-type');
+        if (dataType !== 'control_dropdown' && dataType !== 'control_radio' && dataType !== 'control_checkbox') {
+            return; // unsupported field type for an options override
+        }
+
+        JotForm.snapshotFieldOptions(field, dataType);
+        const state = JotForm.updateOptionsState[field];
+        if (!state) {
+            return; // snapshot failed (field DOM not ready)
+        }
+        const defaultValues = state.defaultValues || [];
+
+        // The action whose value should win: the active one, or another
+        // still-true override on the same field once this one goes false.
+        let winningAction = null;
+        if (isActive) {
+            winningAction = action || { subType: undefined, targetPropValue: value };
+        } else {
+            $A(JotForm.conditions).each(function (cond) {
+                if (cond.disabled == true) return;
+                if (cond.type !== 'updateOptions') return;
+                $A(cond.action).each(function (act) {
+                    if (String(act.field) === field && act.targetProp === 'options' && act.currentlyTrue) {
+                        winningAction = act;
+                    }
+                });
+            });
+        }
+
+        if (winningAction === null) {
+            JotForm.applyFieldOptions(field, dataType, defaultValues);
+        } else {
+            const values = JotForm.resolveUpdateOptionsValues(winningAction.subType, winningAction.targetPropValue, defaultValues);
+            JotForm.applyFieldOptions(field, dataType, values);
+        }
+
+        if (window.FORM_MODE !== 'cardform') {
+            JotForm.iframeHeightCaller();
+        }
+        JotForm.runConditionForId(field);
     },
 
     /**
@@ -20304,6 +20602,20 @@ var JotForm = {
             }
         } else if (condition.type == 'url') {
             return (condition.link.toLowerCase() == 'any' && any) || (condition.link.toLowerCase() == 'all' && all);
+        } else if (condition.type == 'updateOptions') {
+            // eslint-disable-next-line no-var
+            var isConditionValid = (condition.link.toLowerCase() == 'any' && any) || (condition.link.toLowerCase() == 'all' && all);
+            condition.action.each(function (action) {
+                action.currentlyTrue = isConditionValid;
+                const handler = JotForm.conditionPropHandlers && JotForm.conditionPropHandlers[action.targetProp];
+                if (typeof handler === 'function') {
+                    try {
+                        handler(action.field, action.targetPropValue, isConditionValid, action);
+                    } catch (updateOptionsError) {
+                        console.log(updateOptionsError);
+                    }
+                }
+            });
         } else { // Page condition
 
             // eslint-disable-next-line no-var
@@ -23274,7 +23586,7 @@ var JotForm = {
 
                 if (condition.disabled == true) return; //go to next condition
 
-                if (condition.type == 'field' || condition.type == 'calculation' || condition.type == 'require' || condition.type == 'mask'
+                if (condition.type == 'field' || condition.type == 'calculation' || condition.type == 'require' || condition.type == 'mask' || condition.type == 'updateOptions'
                     || ($A(condition.action).length > 0 && condition.action.first().skipHide === 'hidePage')) {
 
                     // eslint-disable-next-line no-var
@@ -30387,13 +30699,27 @@ var JotForm = {
           }
         };
 
-        const getInitialValue = () => ({
-          value: signatureInput.value || '',
-          mode: signatureInput.dataset.mode || 'draw',
-          font: signatureInput.dataset.font || 'Yellowtail',
-          color: signatureInput.dataset.color || '#000000',
-          text: signatureInput.dataset.text || ''
-        });
+        const getInitialValue = () => {
+          let value = signatureInput.value || '';
+          // Stored signatures are server file paths (e.g. "uploads/podo/.../sig.png").
+          // On an /edit/ URL a bare relative path resolves against the page and 404s,
+          // so make it root-relative (like the legacy signature path does) before drawing.
+          if (
+            value
+            && value.indexOf('data:') !== 0
+            && value.indexOf('/') !== 0
+            && !/^https?:\/\//.test(value)
+          ) {
+            value = '/' + value;
+          }
+          return {
+            value,
+            mode: signatureInput.dataset.mode || 'draw',
+            font: signatureInput.dataset.font || 'Yellowtail',
+            color: signatureInput.dataset.color || '#000000',
+            text: signatureInput.dataset.text || ''
+          };
+        };
 
         window.JFFormAdvancedSignature({
           trigger: container,
@@ -33990,8 +34316,18 @@ var JotForm = {
                 return Array.from(document.querySelectorAll(`input[id^=input_${id}_]`)).map(function (e) {
                     return e.value;
                 }).some();
-            case "signature":
-                return jQuery("#id_" + id).find(".pad").jSignature('getData', 'base30')[1].length > 0;
+            case "signature": {
+                // Advanced signature fields have no jSignature `.pad`, and in edit mode the
+                // legacy pad is hidden (`edit-signature`) with the saved value living in the
+                // hidden input. In both cases `jSignature('getData', 'base30')` returns
+                // undefined, so fall back to the hidden input value instead of indexing it.
+                const signaturePad = jQuery("#id_" + id).find(".pad");
+                if (!signaturePad.length || signaturePad.hasClass('edit-signature')) {
+                    return !!(inputElement && inputElement.value);
+                }
+                const signatureData = signaturePad.jSignature('getData', 'base30');
+                return !!(signatureData && signatureData[1] && signatureData[1].length > 0);
+            }
             case "slider":
                 return inputElement.value > 0;
             case "file":
@@ -36505,6 +36841,25 @@ var JotForm = {
                 var email = '';
                 // eslint-disable-next-line no-var
                 var hasErrors = false;
+
+            
+                document.querySelectorAll('.form-line textarea.form-textarea').forEach(function(textarea) {
+                    // eslint-disable-next-line no-var
+                    var formLine = textarea.closest('.form-line');
+                    if (!formLine) return;
+                    // eslint-disable-next-line no-var
+                    var richEditor = formLine.querySelector('.nicEdit-main') || formLine.querySelector('.jfTextarea-editor');
+                    if (!richEditor) return;
+                    // eslint-disable-next-line no-var
+                    var editorHTML = richEditor.innerHTML;
+                    // eslint-disable-next-line no-var
+                    var strippedContent = editorHTML.replace(/<[^>]*>/g, '').replace(/\s/g, '').replace(/&nbsp;/g, '');
+                    // eslint-disable-next-line no-var
+                    var customHint = textarea.getAttribute('data-customhint');
+                    // eslint-disable-next-line no-var
+                    var isPlaceholder = !!customHint && customHint === editorHTML;
+                    textarea.value = (strippedContent === '' || isPlaceholder) ? '' : editorHTML;
+                });
 
                 fields.forEach(function(field) {
                     // eslint-disable-next-line no-var
