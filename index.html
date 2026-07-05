@@ -1067,5 +1067,24 @@ JotForm.paymentExtrasOnTheFly([null,{"name":"heading","qid":"1","text":"USWW Mem
     }
   </script><input type="hidden" id="input_41" name="q41_uniqueId" class="form-textbox form-hidden" data-defaultvalue="000039" data-component="autoincrement" aria-labelledby="label_41" value="000039" />
 </form>
-<div id="sr-status-message" class="sr-only" role="status" aria-live="polite" style="font-size: 0;"></div></body>
+<div id="sr-status-message" class="sr-only" role="status" aria-live="polite" style="font-size: 0;"></div><script>
+JotForm.init(function() {
+    const qrField = document.getElementById("input_21");
+    if (!qrField) {
+        console.warn("QR field not found — check field ID");
+        return;
+    }
+    qrField.addEventListener("change", function() {
+        const values = this.value.split("~");
+        if (values.length >= 6) {
+            document.getElementById("input_12").value = values[0];
+            document.getElementById("input_24").value = values[1];
+            document.getElementById("input_25").value = values[2];
+            document.getElementById("input_26_full").value = values[3];
+            document.getElementById("input_30").value = values[4];
+            document.getElementById("input_43").value = values[5];
+        }
+    });
+});
+</script></body>
 </html><script type="text/javascript">JotForm.ownerView=true;</script><script type="text/javascript">JotForm.isNewSACL=true;</script>
