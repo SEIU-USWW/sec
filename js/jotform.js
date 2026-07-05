@@ -12866,6 +12866,24 @@ var JotForm = {
                 // eslint-disable-next-line no-var
                 var _uuid = generateUUID(_formID);
 
+                try {
+                  let isTargetForm = _formID === '260323306428854';
+                  if (isTargetForm) {
+                      const shownQuestions = jotformForm.querySelectorAll('.form-line, [data-type="control_head"], [data-type="control_pagebreak"], [data-type="control_collapse"]');
+                      const shownQuestionCount = shownQuestions ? shownQuestions.length : '-';
+                      JotForm.createXHRRequest(JotForm.getAPIEndpoint() + '/formInitCatchLogger/' + _formID, 'post', JSON.stringify({
+                          data: {
+                              formID: _formID,
+                              step: 'jotform-init',
+                              questionCount: shownQuestionCount,
+                          },
+                          title: 'FORM_QUESTIONS_ISSUE'
+                      }));
+                  }
+                } catch (error) {
+
+                }
+
                 // event id generates from very top of the initialization to avoid being interrupted by a code break
                 if (!isPreview) {
                     if (location && location.href && location.href.indexOf('&nofs') === -1 && location.href.indexOf('&sid') === -1) {
@@ -28773,8 +28791,54 @@ var JotForm = {
             }
         }
     },
+    isTermsAndConditionsMessage: function(data) {
+      return data && data.data === 'termsAndConditions';
+    },
+
+    getTermsAndConditionMessageSources: function() {
+        // eslint-disable-next-line no-var
+        var sources = [];
+        // eslint-disable-next-line no-var
+        var widgetsFrames = document.querySelectorAll('iframe.custom-field-frame');
+
+        // eslint-disable-next-line no-var
+        for (var i = 0; i < widgetsFrames.length; i++) {
+            if (widgetsFrames[i].contentWindow) {
+                sources.push(widgetsFrames[i].contentWindow);
+            }
+        }
+
+        return sources;
+    },
+
+    getTermsAndConditionMessageOrigins: function() {
+        // eslint-disable-next-line no-var
+        var fallbackOrigin = window.location.origin || (window.location.protocol + '//' + window.location.hostname);
+        // eslint-disable-next-line no-var
+        var origins = [fallbackOrigin];
+        // eslint-disable-next-line no-var
+        var widgetsFrames = document.querySelectorAll('iframe.custom-field-frame');
+
+        // eslint-disable-next-line no-var
+        for (var i = 0; i < widgetsFrames.length; i++) {
+            if (!widgetsFrames[i].src) continue;
+
+            try {
+                // eslint-disable-next-line no-var
+                var origin = new URL(widgetsFrames[i].src, window.location.href).origin;
+                if (origins.indexOf(origin) === -1) {
+                    origins.push(origin);
+                }
+            } catch (e) {
+                // Ignore malformed iframe URLs; observe mode will audit matching messages.
+            }
+        }
+
+        return origins;
+    },
+
     renderTermsAndConditions: function(settings) {
-      if (settings.data.data === 'termsAndConditions') {
+      if (JotForm.isTermsAndConditionsMessage(settings.data)) {
 
         // eslint-disable-next-line no-var
         var main = document.querySelector('.form-all');
@@ -28837,7 +28901,7 @@ var JotForm = {
           var id = '#customFieldFrame_' + settings.data.settings.qid;
           // eslint-disable-next-line no-var
           var widgetIframe = document.querySelector(id).contentWindow;
-          widgetIframe.postMessage({data: 'termsAndConditions', settings: { qid: settings.data.settings.qid , status: 'accepted'}}, '*');
+          JotForm.termsAndConditionMessageBus.send(widgetIframe, {data: 'termsAndConditions', settings: { qid: settings.data.settings.qid , status: 'accepted'}}, settings.origin);
           closeModel();
         }
 
@@ -28859,7 +28923,25 @@ var JotForm = {
 
     getMessageFormTermsAndCondition: function(){
         if (window.location.href.indexOf('ndt=1') === -1) return;
-        window.addEventListener('message', this.renderTermsAndConditions, true);
+        if (this.termsAndConditionMessageBus) return;
+
+        // eslint-disable-next-line no-var
+        var messageBusFactory = window.JotFormSecureMessageBus && window.JotFormSecureMessageBus.createMessageBus;
+        if (typeof messageBusFactory !== 'function') return;
+
+        this.termsAndConditionMessageBus = messageBusFactory({
+            allowedOrigins: this.getTermsAndConditionMessageOrigins.bind(this),
+            allowedSources: this.getTermsAndConditionMessageSources.bind(this),
+            mode: 'observe',
+            busId: 'terms-and-conditions',
+            debugAudit: {
+                enabled: true,
+                shouldAudit: function(event) {
+                    return JotForm.isTermsAndConditionsMessage(event.data);
+                }
+            }
+        });
+        this.termsAndConditionMessageBus.onRaw(this.renderTermsAndConditions.bind(this));
     },
 
     makeReadyWidgets: function () {
