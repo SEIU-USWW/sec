@@ -13274,12 +13274,23 @@ var JotForm = {
                         if (window.FORM_MODE !== 'cardform') {
                             if (editedQuestions) {
                                 const parsedChanges = JSON.parse(decodeURIComponent(editedQuestions));
-                                window.addEventListener('message', async (event) => {
-                                    if (event.data === 'startFormAnimations') {
+                                const messageBusFactory = window.JotFormSecureMessageBus && window.JotFormSecureMessageBus.createMessageBus;
+                                if (typeof messageBusFactory === 'function') {
+                                    const formAnimationMessageBus = messageBusFactory({
+                                        allowedOrigins: [window.location.origin],
+                                        allowedSources: [window.parent],
+                                        mode: 'observe',
+                                        busId: 'jotform-js-form-animation-bus',
+                                        debugAudit: {
+                                            enabled: true,
+                                            shouldAudit: event => event.data === 'startFormAnimations'
+                                        }
+                                    });
+                                    formAnimationMessageBus.on('startFormAnimations', async (data, event) => {
                                         await handleChanges(parsedChanges);
-                                        window.parent.postMessage('formChangesHandled', '*');
-                                    }
-                                });
+                                        formAnimationMessageBus.send(window.parent, 'formChangesHandled', event.origin);
+                                    });
+                                }
                             }
 
                             window.addEventListener('formQuestionDeleted', async (event) => {
@@ -20991,7 +21002,7 @@ var JotForm = {
 
             //do not required non-necessary parts of combined field
             if (el.id === 'coupon-input'
-                || (el.type === 'hidden' && !el.up('.form-star-rating') && !el.hasClassName('form-widget') && !el.up('.FITB-inptCont[data-type="signaturebox"]') && (!("input_" + qid + "_date" === el.id && JotForm.getInputType(qid) === "appointment" && $("input_" + qid + "_date"))))
+                || (el.type === 'hidden' && !el.up('.form-star-rating') && !el.hasClassName('form-widget') && !el.up('.FITB-inptCont[data-type="signaturebox"]') && !el.up('[data-component="advanced-signature"]') && (!("input_" + qid + "_date" === el.id && JotForm.getInputType(qid) === "appointment" && $("input_" + qid + "_date"))))
                 || el.hasClassName('form-checkbox-other-input') || el.hasClassName('form-radio-other-input')
                 || el.hasClassName('jfModal-input')
                 || $A(['prefix', 'middle', 'suffix', 'addr_line2']).any(function (name) {
@@ -27796,22 +27807,35 @@ var JotForm = {
     },
     // Handle messages from widget (iframe)
     handleWidgetMessage: function() {
-        window.addEventListener("message", function (message) {
+        // eslint-disable-next-line no-var
+        var messageBusFactory = window.JotFormSecureMessageBus && window.JotFormSecureMessageBus.createMessageBus;
+        // eslint-disable-next-line no-var
+        var parseMessageData = function(msg) {
+            // Urgent late night fix for: https://www.jotform.com/answers/491718
+            if (typeof msg === 'string') {
+                // eslint-disable-next-line no-var
+                var parsed = JSON.parse(msg);
+                return typeof parsed.data === 'string' ? JSON.parse(parsed.data) : parsed.data;
+            } else if (typeof msg === 'object' && typeof msg.data === 'string' && msg.data[0] == '{') {
+                return JSON.parse(msg.data);
+            } else if (typeof msg === 'object' && typeof msg.data === 'object') {
+                return msg.data;
+            }
+            return msg;
+        };
+        // eslint-disable-next-line no-var
+        var isWidgetMessage = function(message) {
             try {
                 // eslint-disable-next-line no-var
-                var parseMessageData = function(msg) {
-                    // Urgent late night fix for: https://www.jotform.com/answers/491718
-                    if (typeof msg === 'string') {
-                        // eslint-disable-next-line no-var
-                        var parsed = JSON.parse(msg);
-                        return typeof parsed.data === 'string' ? JSON.parse(parsed.data) : parsed.data;
-                    } else if (typeof msg === 'object' && typeof msg.data === 'string' && msg.data[0] == '{') {
-                        return JSON.parse(msg.data);
-                    } else if (typeof msg === 'object' && typeof msg.data === 'object') {
-                        return msg.data;
-                    }
-                    return msg;
-                };
+                var parsedMessageData = parseMessageData(message);
+                return parsedMessageData && (parsedMessageData.type === 'collapse' || parsedMessageData.type === 'fields:fill');
+            } catch (e) {
+                return false;
+            }
+        };
+        // eslint-disable-next-line no-var
+        var handleMessage = function(message) {
+            try {
                 // eslint-disable-next-line no-var
                 var parsedMessageData = parseMessageData(message);
                 if (parsedMessageData && parsedMessageData.type) {
@@ -27829,7 +27853,26 @@ var JotForm = {
             } catch (e) {
                 console.error('ErrorOnHandleWigetMessage', e);
             }
-        }, false);
+        };
+
+        if (typeof messageBusFactory !== 'function') {
+            window.addEventListener("message", handleMessage, false);
+            return;
+        }
+
+        if (this.widgetMessageBus) return;
+
+        this.widgetMessageBus = messageBusFactory({
+            allowedOrigins: this.getWidgetMessageOrigins.bind(this),
+            allowedSources: this.getWidgetMessageSources.bind(this),
+            mode: 'observe',
+            busId: 'jotform-js-widget-bus',
+            debugAudit: {
+                enabled: true,
+                shouldAudit: isWidgetMessage
+            }
+        });
+        this.widgetMessageBus.onRaw(handleMessage);
     },
 
     handleParentSubmitMessage: function () {
@@ -28795,7 +28838,7 @@ var JotForm = {
       return data && data.data === 'termsAndConditions';
     },
 
-    getTermsAndConditionMessageSources: function() {
+    getWidgetMessageSources: function() {
         // eslint-disable-next-line no-var
         var sources = [];
         // eslint-disable-next-line no-var
@@ -28811,7 +28854,7 @@ var JotForm = {
         return sources;
     },
 
-    getTermsAndConditionMessageOrigins: function() {
+    getWidgetMessageOrigins: function() {
         // eslint-disable-next-line no-var
         var fallbackOrigin = window.location.origin || (window.location.protocol + '//' + window.location.hostname);
         // eslint-disable-next-line no-var
@@ -28930,10 +28973,10 @@ var JotForm = {
         if (typeof messageBusFactory !== 'function') return;
 
         this.termsAndConditionMessageBus = messageBusFactory({
-            allowedOrigins: this.getTermsAndConditionMessageOrigins.bind(this),
-            allowedSources: this.getTermsAndConditionMessageSources.bind(this),
+            allowedOrigins: this.getWidgetMessageOrigins.bind(this),
+            allowedSources: this.getWidgetMessageSources.bind(this),
             mode: 'observe',
-            busId: 'terms-and-conditions',
+            busId: 'jotform-js-terms-and-conditions-bus',
             debugAudit: {
                 enabled: true,
                 shouldAudit: function(event) {
