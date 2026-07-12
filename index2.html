@@ -147,11 +147,12 @@ JotForm.paymentExtrasOnTheFly([null,{"name":"heading","qid":"1","text":"Form","t
 
   <!-- ===== Salesforce Calendar Event integration (added) ===== -->
   <!-- Populates the three "Event" dropdowns from the CVSR__CalendarEvent__c
-       Cloudflare Worker API, and auto-fills the matching EventID text field
-       with the selected record's Salesforce Id whenever a dropdown changes. -->
+       Cloudflare Worker API (PRODUCTION), and auto-fills the matching EventID
+       text field with the selected record's Salesforce Id whenever a dropdown
+       changes. -->
   <script>
   (function () {
-    // UPDATE this if your Worker's URL ever changes
+    // Production Worker (deployed via wrangler-prod.toml)
     var API_URL = 'https://sf-calendar-events-prod.seiu-usww.workers.dev';
 
     var pairs = [
